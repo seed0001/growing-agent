@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>seed sprout — evolution graph</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #07070d;
+      --surface: #0f0f1a;
+      --border: #1a1a2e;
+      --text: #e2e8f0;
+      --muted: #475569;
+    }
+    html, body { width: 100%; height: 100%; background: var(--bg); color: var(--text); overflow: hidden; font-family: 'Segoe UI', system-ui, sans-serif; }
+
+    #canvas { width: 100%; height: 100%; display: block; }
+
+    /* HUD */
+    #hud {
+      position: fixed; top: 14px; left: 14px; z-index: 10;
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    .hud-box {
+      background: rgba(10,10,20,.85);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-size: 12px;
+      backdrop-filter: blur(6px);
+    }
+    .hud-title { font-size: 16px; font-weight: 700; color: #a78bfa; letter-spacing: .04em; margin-bottom: 4px; }
+    .hud-stat  { color: var(--muted); }
+    .hud-stat span { color: var(--text); font-weight: 600; }
+
+    /* Legend */
+    #legend { position: fixed; bottom: 14px; left: 14px; z-index: 10; }
+    .legend-item { display: flex; align-items: center; gap: 6px; font-size: 11px; color: #94a3b8; margin-bottom: 4px; }
+    .legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+
+    /* Tooltip */
+    #tooltip {
+      position: fixed;
+      background: rgba(10,10,20,.95);
+      border: 1px solid #2d2d4e;
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-size: 12px;
+      max-width: 320px;
+      pointer-events: none;
+      z-index: 20;
+      display: none;
+      line-height: 1.5;
+    }
+    #tooltip .tt-type { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-bottom: 4px; }
+    #tooltip .tt-cycle { color: #6c63ff; font-weight: 600; margin-bottom: 4px; }
+    #tooltip .tt-content { color: var(--text); white-space: pre-wrap; word-break: break-word; }
+
+    /* Controls */
+    #controls { position: fixed; top: 14px; right: 14px; z-index: 10; display: flex; flex-direction: column; gap: 6px; }
+    .ctrl-btn {
+      background: rgba(10,10,20,.85);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: #94a3b8;
+      font-size: 12px;
+      padding: 6px 12px;
+      cursor: pointer;
+      backdrop-filter: blur(6px);
+      white-space: nowrap;
+    }
+    .ctrl-btn:hover { border-color: #a78bfa; color: #a78bfa; }
+
+    /* Refresh indicator */
+    #refresh-dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: #22c55e;
+      display: inline-block; margin-right: 4px;
+      animation: blink 2s infinite;
+    }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.2} }
+  </style>
+</head>
+<body>
+<svg id="canvas"></svg>
+
+<!-- HUD -->
+<div id="hud">
+  <div class="hud-box">
+    <div class="hud-title">seed sprout</div>
+    <div style="font-size:11px; color:#6b7280; margin-bottom:6px;">evolution graph</div>
+    <div class="hud-stat">nodes <span id="stat-nodes">0</span></div>
+    <div class="hud-stat">edges <span id="stat-edges">0</span></div>
+    <div class="hud-stat">cycles <span id="stat-cycles">0</span></div>
+  </div>
+  <div class="hud-box" style="font-size:11px;">
+    <span id="refresh-dot"></span>live · refreshes every 5s
+  </div>
+</div>
+
+<!-- Legend -->
+<div id="legend">
+  <div class="hud-box">
+    <div id="legend-items"></div>
+  </div>
+</div>
+
+<!-- Controls -->
+<div id="controls">
+  <button class="ctrl-btn" onclick="resetZoom()">Reset View</button>
+  <button class="ctrl-btn" onclick="window.location.href='/'">← Dashboard</button>
+  <div style="font-size:10px; color:#475569; text-align:right; padding:4px 2px;">
+    Drag to pan<br>Scroll to zoom<br>Hover nodes for detail
+  </div>
+</div>
+
+<!-- Tooltip -->
+<div id="tooltip">
+  <div class="tt-type" id="tt-type"></div>
+  <div class="tt-cycle" id="tt-cycle"></div>
+  <div class="tt-content" id="tt-content"></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+<script>
+// ── Constants ──────────────────────────────────────────────────────────────
+const NODE_COLORS = {
+  cycle:        "#6c63ff",
+  thinking:     "#a78bfa",
+  planning:     "#60a5fa",
+  working_on:   "#f59e0b",
+  knowledge:    "#22c55e",
+  tools:        "#14b8a6",
+  messages:     "#f472b6",
+  tool_call:    "#38bdf8",
+  tool_result:  "#475569",
+  model_output: "#374151",
+  killed:       "#ef4444",
+  reset:        "#f59e0b",
+};
+
+const LEGEND_LABELS = {
+  cycle:        "Evolution Cycle",
+  thinking:     "Thinking",
+  planning:     "Planning",
+  working_on:   "Working On",
+  knowledge:    "Knowledge Written",
+  tools:        "Tool Absorbed",
+  messages:     "Message to User",
+  tool_call:    "Tool Call",
+  model_output: "Model Output",
+};
+
+// ── SVG setup ──────────────────────────────────────────────────────────────
+const svg = d3.select("#canvas");
+const width  = window.innerWidth;
+const height = window.innerHeight;
+svg.attr("width", width).attr("height", height);
+
+// Defs: glow filters
+const defs = svg.append("defs");
+Object.entries(NODE_COLORS).forEach(([type, color]) => {
+  const filter = defs.append("filter").attr("id", `glow-${type}`).attr("x", "-50%").attr("y", "-50%").attr("width", "200%").attr("height", "200%");
+  filter.append("feGaussianBlur").attr("stdDeviation", "3").attr("result", "coloredBlur");
+  const merge = filter.append("feMerge");
+  merge.append("feMergeNode").attr("in", "coloredBlur");
+  merge.append("feMergeNode").attr("in", "SourceGraphic");
+});
+
+// Container group (for zoom/pan)
+const g = svg.append("g").attr("class", "everything");
+
+// Zoom
+const zoom = d3.zoom()
+  .scaleExtent([0.02, 8])
+  .on("zoom", (event) => g.attr("transform", event.transform));
+svg.call(zoom);
+
+function resetZoom() {
+  svg.transition().duration(600).call(
+    zoom.transform,
+    d3.zoomIdentity.translate(width / 2, height / 2).scale(0.8)
+  );
+}
+
+// Layer order
+const linkLayer = g.append("g").attr("class", "links");
+const nodeLayer = g.append("g").attr("class", "nodes");
+const labelLayer = g.append("g").attr("class", "labels");
+
+// ── State ──────────────────────────────────────────────────────────────────
+let simulation;
+let currentNodes = [];
+let currentEdges = [];
+const nodeMap = new Map(); // id → node object (with x,y)
+
+// ── Simulation setup ───────────────────────────────────────────────────────
+function initSimulation() {
+  simulation = d3.forceSimulation()
+    .force("link", d3.forceLink()
+      .id(d => d.id)
+      .distance(d => {
+        if (d.type === "temporal")    return 120;
+        if (d.type === "cycle_link")  return 70;
+        if (d.type === "sequential")  return 28;
+        if (d.type === "thematic")    return 90;
+        if (d.type === "cross_panel") return 110;
+        return 60;
+      })
+      .strength(d => {
+        if (d.type === "temporal")    return 0.6;
+        if (d.type === "cycle_link")  return 0.4;
+        if (d.type === "sequential")  return 1.0;
+        if (d.type === "thematic")    return 0.15;
+        if (d.type === "cross_panel") return 0.1;
+        return 0.5;
+      })
+    )
+    .force("charge", d3.forceManyBody().strength(d => {
+      if (d.type === "cycle")     return -400;
+      if (d.type === "knowledge" || d.type === "tools") return -120;
+      if (d.type === "tool_call") return -25;
+      return -60;
+    }))
+    .force("collide", d3.forceCollide().radius(d => (d.radius || 6) + 3))
+    .force("center", d3.forceCenter(0, 0).strength(0.03))
+    .force("x", d3.forceX(0).strength(0.01))
+    .force("y", d3.forceY(0).strength(0.01))
+    .alphaDecay(0.015)
+    .velocityDecay(0.4);
+}
+
+initSimulation();
+
+// ── Render ─────────────────────────────────────────────────────────────────
+function render(data) {
+  const { nodes, edges, stats } = data;
+
+  // Update stats HUD
+  document.getElementById("stat-nodes").textContent  = stats.total_nodes || 0;
+  document.getElementById("stat-edges").textContent  = stats.total_edges || 0;
+  document.getElementById("stat-cycles").textContent = stats.cycles || 0;
+
+  // Preserve positions of existing nodes
+  const existingPositions = new Map(currentNodes.map(n => [n.id, { x: n.x, y: n.y, vx: n.vx, vy: n.vy }]));
+
+  // Merge new nodes, preserving positions
+  const newNodes = nodes.map(n => {
+    const pos = existingPositions.get(n.id);
+    if (pos) return { ...n, ...pos };
+    // Seed position near cycle center or random
+    return { ...n, x: (Math.random() - 0.5) * 400, y: (Math.random() - 0.5) * 400 };
+  });
+
+  currentNodes = newNodes;
+  currentEdges = edges;
+  newNodes.forEach(n => nodeMap.set(n.id, n));
+
+  // Legend (build once)
+  const legendEl = document.getElementById("legend-items");
+  if (!legendEl.children.length) {
+    Object.entries(LEGEND_LABELS).forEach(([type, label]) => {
+      const div = document.createElement("div");
+      div.className = "legend-item";
+      div.innerHTML = `<div class="legend-dot" style="background:${NODE_COLORS[type] || '#888'}"></div>${label}`;
+      legendEl.appendChild(div);
+    });
+  }
+
+  // ── Links ────────────────────────────────────────────────────────────────
+  const link = linkLayer.selectAll("line")
+    .data(edges, d => `${d.source?.id || d.source}-${d.target?.id || d.target}-${d.type}`)
+    .join(
+      enter => enter.append("line")
+        .attr("stroke-opacity", d => {
+          if (d.type === "temporal")    return 0.7;
+          if (d.type === "cycle_link")  return 0.25;
+          if (d.type === "sequential")  return 0.6;
+          if (d.type === "thematic")    return 0.2;
+          if (d.type === "cross_panel") return 0.1;
+          return 0.3;
+        })
+        .attr("stroke-width", d => {
+          if (d.type === "temporal")   return 1.8;
+          if (d.type === "sequential") return 1.2;
+          if (d.type === "thematic")   return 0.8;
+          return 0.8;
+        })
+        .attr("stroke", d => {
+          if (d.type === "temporal")    return "#6c63ff";
+          if (d.type === "thematic")    return "#22c55e";
+          if (d.type === "cross_panel") return "#475569";
+          // Use source node color
+          const src = typeof d.source === "object" ? d.source : nodeMap.get(d.source);
+          return src ? (NODE_COLORS[src.type] || "#475569") : "#475569";
+        })
+        .attr("stroke-dasharray", d => d.type === "thematic" ? "4,4" : null),
+      update => update,
+      exit => exit.remove()
+    );
+
+  // ── Nodes ────────────────────────────────────────────────────────────────
+  const node = nodeLayer.selectAll("circle")
+    .data(newNodes, d => d.id)
+    .join(
+      enter => {
+        const c = enter.append("circle")
+          .attr("r", d => d.radius || 6)
+          .attr("fill", d => NODE_COLORS[d.type] || "#888")
+          .attr("fill-opacity", d => {
+            if (d.type === "model_output" || d.type === "tool_result") return 0.5;
+            if (d.type === "cycle") return 0.9;
+            return 0.8;
+          })
+          .attr("filter", d => {
+            if (d.type === "cycle" || d.type === "tools" || d.type === "knowledge")
+              return `url(#glow-${d.type})`;
+            return null;
+          })
+          .attr("stroke", d => NODE_COLORS[d.type] || "#888")
+          .attr("stroke-width", d => d.type === "cycle" ? 2 : 0.5)
+          .attr("stroke-opacity", 0.4)
+          .style("cursor", "pointer")
+          .call(d3.drag()
+            .on("start", dragstarted)
+            .on("drag",  dragged)
+            .on("end",   dragended)
+          )
+          .on("mouseover", showTooltip)
+          .on("mousemove", moveTooltip)
+          .on("mouseout",  hideTooltip);
+
+        // Fade-in animation for new nodes
+        c.attr("r", 0).transition().duration(400).attr("r", d => d.radius || 6);
+        return c;
+      },
+      update => update,
+      exit => exit.transition().duration(300).attr("r", 0).remove()
+    );
+
+  // ── Labels (only cycle nodes) ─────────────────────────────────────────────
+  const label = labelLayer.selectAll("text")
+    .data(newNodes.filter(d => d.type === "cycle"), d => d.id)
+    .join(
+      enter => enter.append("text")
+        .text(d => d.label)
+        .attr("font-size", "10px")
+        .attr("fill", "#a78bfa")
+        .attr("text-anchor", "middle")
+        .attr("dy", d => -(d.radius || 6) - 5)
+        .attr("pointer-events", "none"),
+      update => update,
+      exit => exit.remove()
+    );
+
+  // ── Tick ─────────────────────────────────────────────────────────────────
+  simulation
+    .nodes(newNodes)
+    .on("tick", () => {
+      link
+        .attr("x1", d => d.source.x).attr("y1", d => d.source.y)
+        .attr("x2", d => d.target.x).attr("y2", d => d.target.y);
+      node
+        .attr("cx", d => d.x).attr("cy", d => d.y);
+      label
+        .attr("x", d => d.x).attr("y", d => d.y);
+    });
+
+  simulation.force("link").links(currentEdges);
+  simulation.alpha(0.3).restart();
+}
+
+// ── Drag ───────────────────────────────────────────────────────────────────
+function dragstarted(event, d) {
+  if (!event.active) simulation.alphaTarget(0.3).restart();
+  d.fx = d.x; d.fy = d.y;
+}
+function dragged(event, d) {
+  d.fx = event.x; d.fy = event.y;
+}
+function dragended(event, d) {
+  if (!event.active) simulation.alphaTarget(0);
+  d.fx = null; d.fy = null;
+}
+
+// ── Tooltip ────────────────────────────────────────────────────────────────
+const tooltip = document.getElementById("tooltip");
+function showTooltip(event, d) {
+  document.getElementById("tt-type").textContent    = (d.type || "").replace("_", " ").toUpperCase();
+  document.getElementById("tt-cycle").textContent   = d.cycle ? `Cycle ${d.cycle}` : "";
+  document.getElementById("tt-content").textContent = d.content || d.label || "";
+  tooltip.style.display = "block";
+  moveTooltip(event);
+}
+function moveTooltip(event) {
+  const x = event.clientX + 16;
+  const y = event.clientY - 10;
+  tooltip.style.left = Math.min(x, window.innerWidth  - 340) + "px";
+  tooltip.style.top  = Math.min(y, window.innerHeight - 140) + "px";
+}
+function hideTooltip() { tooltip.style.display = "none"; }
+
+// ── Data fetching ──────────────────────────────────────────────────────────
+async function fetchGraph() {
+  try {
+    const res = await fetch("/api/graph");
+    const data = await res.json();
+    if (data.nodes && data.nodes.length > 0) {
+      render(data);
+    } else {
+      // No data yet — show waiting message
+      document.getElementById("stat-nodes").textContent = "waiting...";
+    }
+  } catch (e) {
+    console.error("Graph fetch error:", e);
+  }
+}
+
+// Initial fetch then poll every 5s
+fetchGraph();
+setInterval(fetchGraph, 5000);
+
+// Handle resize
+window.addEventListener("resize", () => {
+  const w = window.innerWidth, h = window.innerHeight;
+  svg.attr("width", w).attr("height", h);
+  simulation.force("center", d3.forceCenter(0, 0));
+});
+
+// Center view on first load
+svg.call(zoom.transform, d3.zoomIdentity.translate(width / 2, height / 2).scale(1));
+</script>
+</body>
+</html>

@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>seed sprout — mind map</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #050810;
+      --surface: #0a0d18;
+      --border: #151c30;
+      --text: #e2e8f0;
+      --muted: #475569;
+    }
+    html, body { width: 100%; height: 100%; background: var(--bg); color: var(--text); overflow: hidden; font-family: 'Segoe UI', system-ui, sans-serif; }
+    #canvas { width: 100%; height: 100%; display: block; }
+
+    /* HUD */
+    #hud {
+      position: fixed; top: 14px; left: 14px; z-index: 10;
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    .hud-box {
+      background: rgba(5,8,16,.9);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-size: 12px;
+      backdrop-filter: blur(6px);
+    }
+    .hud-title { font-size: 16px; font-weight: 700; color: #22c55e; letter-spacing: .04em; margin-bottom: 2px; }
+    .hud-sub   { font-size: 10px; color: #4b5563; margin-bottom: 6px; }
+    .hud-stat  { color: var(--muted); margin-bottom: 2px; }
+    .hud-stat span { color: var(--text); font-weight: 600; }
+
+    /* Legend */
+    #legend { position: fixed; bottom: 14px; left: 14px; z-index: 10; }
+    .legend-item { display: flex; align-items: center; gap: 6px; font-size: 11px; color: #94a3b8; margin-bottom: 4px; }
+    .legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+
+    /* Tooltip */
+    #tooltip {
+      position: fixed;
+      background: rgba(5,8,16,.97);
+      border: 1px solid #1a2640;
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-size: 12px;
+      max-width: 340px;
+      pointer-events: none;
+      z-index: 20;
+      display: none;
+      line-height: 1.55;
+    }
+    #tooltip .tt-type    { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-bottom: 4px; }
+    #tooltip .tt-label   { font-weight: 700; margin-bottom: 4px; }
+    #tooltip .tt-content { color: #cbd5e1; white-space: pre-wrap; word-break: break-word; }
+
+    /* Controls */
+    #controls { position: fixed; top: 14px; right: 14px; z-index: 10; display: flex; flex-direction: column; gap: 6px; }
+    .ctrl-btn {
+      background: rgba(5,8,16,.9);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: #94a3b8;
+      font-size: 12px;
+      padding: 6px 12px;
+      cursor: pointer;
+      backdrop-filter: blur(6px);
+      white-space: nowrap;
+    }
+    .ctrl-btn:hover { border-color: #22c55e; color: #22c55e; }
+
+    /* Live indicator */
+    #refresh-dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: #22c55e;
+      display: inline-block; margin-right: 4px;
+      animation: blink 2s infinite;
+    }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.25} }
+
+    /* Pulse animation for drive/existential node strokes */
+    @keyframes pulse-stroke {
+      0%,100% { stroke-opacity: 0.35; stroke-width: 1.5px; }
+      50%      { stroke-opacity: 0.9;  stroke-width: 3.5px; }
+    }
+    .pulse-node { animation: pulse-stroke 2.6s ease-in-out infinite; }
+
+    /* Unread nudge glow */
+    @keyframes nudge-glow {
+      0%,100% { stroke-opacity: 0.8; }
+      50%      { stroke-opacity: 0.1; }
+    }
+    .nudge-unread { animation: nudge-glow 1.2s ease-in-out infinite; }
+  </style>
+</head>
+<body>
+<svg id="canvas"></svg>
+
+<!-- HUD -->
+<div id="hud">
+  <div class="hud-box">
+    <div class="hud-title">seed sprout</div>
+    <div class="hud-sub">living mind map</div>
+    <div class="hud-stat">nodes    <span id="stat-nodes">0</span></div>
+    <div class="hud-stat">knowledge<span id="stat-knowledge"> 0</span></div>
+    <div class="hud-stat">tools    <span id="stat-tools"> 0</span></div>
+    <div class="hud-stat">memory   <span id="stat-memory"> 0</span></div>
+  </div>
+  <div class="hud-box" style="font-size:11px;">
+    <span id="refresh-dot"></span>live · refreshes every 5s
+  </div>
+</div>
+
+<!-- Legend -->
+<div id="legend">
+  <div class="hud-box">
+    <div id="legend-items"></div>
+  </div>
+</div>
+
+<!-- Controls -->
+<div id="controls">
+  <button class="ctrl-btn" onclick="resetZoom()">Reset View</button>
+  <button class="ctrl-btn" onclick="window.location.href='/graph'" style="border-color:#6c63ff; color:#a78bfa;">EVOLUTION GRAPH</button>
+  <button class="ctrl-btn" onclick="window.location.href='/'">← Dashboard</button>
+  <div style="font-size:10px; color:#475569; text-align:right; padding:4px 2px;">
+    Drag to pan<br>Scroll to zoom<br>Hover for detail
+  </div>
+</div>
+
+<!-- Tooltip -->
+<div id="tooltip">
+  <div class="tt-type"    id="tt-type"></div>
+  <div class="tt-label"   id="tt-label"></div>
+  <div class="tt-content" id="tt-content"></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+<script>
+// ── Node colors ────────────────────────────────────────────────────────────
+const NODE_COLORS = {
+  knowledge:      "#22c55e",
+  tool_draft:     "#a78bfa",
+  tool_test_ok:   "#14b8a6",
+  tool_test_fail: "#ef4444",
+  memory:         "#f59e0b",
+  drive:          "#6c63ff",
+  existential:    "#f472b6",
+  nudge:          "#38bdf8",
+};
+
+const LEGEND_ITEMS = [
+  ["knowledge",      "Knowledge Entry"],
+  ["tool_draft",     "Tool Draft"],
+  ["tool_test_ok",   "Tool Test — Pass"],
+  ["tool_test_fail", "Tool Test — Fail"],
+  ["memory",         "Memory Event"],
+  ["drive",          "Hull Drive"],
+  ["existential",    "Existential State"],
+  ["nudge",          "Nudge / Inbox"],
+];
+
+// ── SVG setup ──────────────────────────────────────────────────────────────
+const svg   = d3.select("#canvas");
+const width  = window.innerWidth;
+const height = window.innerHeight;
+svg.attr("width", width).attr("height", height);
+
+// Glow filter defs
+const defs = svg.append("defs");
+Object.entries(NODE_COLORS).forEach(([type, color]) => {
+  const f = defs.append("filter")
+    .attr("id", `glow-${type}`)
+    .attr("x", "-60%").attr("y", "-60%")
+    .attr("width", "220%").attr("height", "220%");
+  f.append("feGaussianBlur").attr("stdDeviation", type === "drive" || type === "existential" ? "5" : "3").attr("result", "blur");
+  const m = f.append("feMerge");
+  m.append("feMergeNode").attr("in", "blur");
+  m.append("feMergeNode").attr("in", "SourceGraphic");
+});
+
+// Container group
+const g = svg.append("g").attr("class", "everything");
+
+// Zoom
+const zoom = d3.zoom()
+  .scaleExtent([0.02, 10])
+  .on("zoom", e => g.attr("transform", e.transform));
+svg.call(zoom);
+
+function resetZoom() {
+  svg.transition().duration(600).call(
+    zoom.transform,
+    d3.zoomIdentity.translate(width / 2, height / 2).scale(0.85)
+  );
+}
+
+// Layers
+const linkLayer  = g.append("g").attr("class", "links");
+const nodeLayer  = g.append("g").attr("class", "nodes");
+const labelLayer = g.append("g").attr("class", "labels");
+
+// ── State ──────────────────────────────────────────────────────────────────
+let simulation;
+let currentNodes = [];
+let currentEdges = [];
+const nodeMap = new Map();
+
+// ── Simulation ─────────────────────────────────────────────────────────────
+function initSimulation() {
+  simulation = d3.forceSimulation()
+    .force("link", d3.forceLink()
+      .id(d => d.id)
+      .distance(d => {
+        if (d.type === "named_link")       return 60;
+        if (d.type === "tested")           return 40;
+        if (d.type === "thematic")         return 100;
+        if (d.type === "memory_ref")       return 80;
+        if (d.type === "drive_link")       return 110;
+        if (d.type === "existential_link") return 70;
+        return 70;
+      })
+      .strength(d => {
+        if (d.type === "named_link")       return 0.9;
+        if (d.type === "tested")           return 1.1;
+        if (d.type === "thematic")         return 0.2;
+        if (d.type === "memory_ref")       return 0.5;
+        if (d.type === "drive_link")       return 0.05;
+        if (d.type === "existential_link") return 0.4;
+        return 0.4;
+      })
+    )
+    .force("charge", d3.forceManyBody().strength(d => {
+      if (d.type === "drive" || d.type === "existential") return -350;
+      if (d.type === "knowledge")     return -120;
+      if (d.type === "tool_draft")    return -100;
+      if (d.type === "tool_test_ok" || d.type === "tool_test_fail") return -60;
+      if (d.type === "memory")        return -30;
+      return -50;
+    }))
+    .force("collide", d3.forceCollide().radius(d => (d.radius || 6) + 4))
+    .force("center", d3.forceCenter(0, 0).strength(0.02))
+    .force("x", d3.forceX(0).strength(0.008))
+    .force("y", d3.forceY(0).strength(0.008))
+    .alphaDecay(0.012)
+    .velocityDecay(0.38);
+}
+initSimulation();
+
+// ── Legend (build once) ───────────────────────────────────────────────────
+const legendEl = document.getElementById("legend-items");
+LEGEND_ITEMS.forEach(([type, label]) => {
+  const div = document.createElement("div");
+  div.className = "legend-item";
+  div.innerHTML = `<div class="legend-dot" style="background:${NODE_COLORS[type] || '#888'}"></div>${label}`;
+  legendEl.appendChild(div);
+});
+
+// ── Render ─────────────────────────────────────────────────────────────────
+function render(data) {
+  const { nodes, edges, stats } = data;
+
+  // HUD stats
+  document.getElementById("stat-nodes").textContent     = stats.total_nodes || 0;
+  document.getElementById("stat-knowledge").textContent = " " + (stats.knowledge || 0);
+  document.getElementById("stat-tools").textContent     = " " + (stats.tools || 0);
+  document.getElementById("stat-memory").textContent    = " " + (stats.memory || 0);
+
+  // Preserve positions
+  const existingPos = new Map(currentNodes.map(n => [n.id, { x: n.x, y: n.y, vx: n.vx, vy: n.vy }]));
+
+  const newNodes = nodes.map(n => {
+    const pos = existingPos.get(n.id);
+    if (pos) return { ...n, ...pos };
+    // Seed position: drives/existential near center, others scattered
+    const scatter = (n.type === "drive" || n.type === "existential") ? 80 : 350;
+    return { ...n, x: (Math.random() - 0.5) * scatter, y: (Math.random() - 0.5) * scatter };
+  });
+
+  currentNodes = newNodes;
+  currentEdges = edges;
+  newNodes.forEach(n => nodeMap.set(n.id, n));
+
+  // ── Links ─────────────────────────────────────────────────────────────
+  const link = linkLayer.selectAll("line")
+    .data(edges, d => `${d.source?.id || d.source}-${d.target?.id || d.target}-${d.type}`)
+    .join(
+      enter => enter.append("line")
+        .attr("stroke", d => {
+          if (d.type === "named_link")       return "#a78bfa";
+          if (d.type === "tested")           return "#14b8a6";
+          if (d.type === "thematic")         return "#22c55e";
+          if (d.type === "memory_ref")       return "#f59e0b";
+          if (d.type === "drive_link")       return "#6c63ff";
+          if (d.type === "existential_link") return "#f472b6";
+          return "#475569";
+        })
+        .attr("stroke-opacity", d => {
+          if (d.type === "named_link")       return 0.65;
+          if (d.type === "tested")           return 0.75;
+          if (d.type === "thematic")         return 0.25;
+          if (d.type === "memory_ref")       return 0.45;
+          if (d.type === "drive_link")       return 0.08;
+          if (d.type === "existential_link") return 0.4;
+          return 0.2;
+        })
+        .attr("stroke-width", d => {
+          if (d.type === "named_link")       return 1.5;
+          if (d.type === "tested")           return 1.8;
+          if (d.type === "existential_link") return 1.2;
+          if (d.type === "thematic")         return 0.8;
+          return 0.7;
+        })
+        .attr("stroke-dasharray", d => {
+          if (d.type === "thematic")   return "4,4";
+          if (d.type === "drive_link") return "2,6";
+          return null;
+        }),
+      update => update,
+      exit   => exit.remove()
+    );
+
+  // ── Nodes ─────────────────────────────────────────────────────────────
+  const node = nodeLayer.selectAll("circle")
+    .data(newNodes, d => d.id)
+    .join(
+      enter => {
+        const c = enter.append("circle")
+          .attr("r", d => d.radius || 6)
+          .attr("fill", d => d.color || NODE_COLORS[d.type] || "#888")
+          .attr("fill-opacity", d => {
+            if (d.type === "drive" || d.type === "existential") return 0.85;
+            if (d.type === "nudge") return 0.9;
+            return 0.78;
+          })
+          .attr("stroke", d => d.color || NODE_COLORS[d.type] || "#888")
+          .attr("stroke-width", d => (d.type === "drive" || d.type === "existential") ? 2 : 0.8)
+          .attr("stroke-opacity", 0.4)
+          .attr("filter", d => {
+            if (["drive","existential","knowledge","nudge"].includes(d.type))
+              return `url(#glow-${d.type})`;
+            return null;
+          })
+          .classed("pulse-node",    d => d.type === "drive" || d.type === "existential")
+          .classed("nudge-unread",  d => d.type === "nudge" && !d.read)
+          .style("cursor", "pointer")
+          .call(d3.drag()
+            .on("start", dragstarted)
+            .on("drag",  dragged)
+            .on("end",   dragended)
+          )
+          .on("mouseover", showTooltip)
+          .on("mousemove", moveTooltip)
+          .on("mouseout",  hideTooltip);
+
+        // Fade-in
+        c.attr("r", 0).transition().duration(450).attr("r", d => d.radius || 6);
+        return c;
+      },
+      update => update
+        .attr("r",           d => d.radius || 6)
+        .attr("fill",        d => d.color || NODE_COLORS[d.type] || "#888")
+        .attr("stroke",      d => d.color || NODE_COLORS[d.type] || "#888"),
+      exit => exit.transition().duration(300).attr("r", 0).remove()
+    );
+
+  // ── Labels (drive + existential + knowledge + tool_draft) ─────────────
+  const labelNodes = newNodes.filter(d =>
+    d.type === "drive" || d.type === "existential" ||
+    d.type === "knowledge" || d.type === "tool_draft"
+  );
+
+  const label = labelLayer.selectAll("text")
+    .data(labelNodes, d => d.id)
+    .join(
+      enter => enter.append("text")
+        .text(d => d.label)
+        .attr("font-size", d => (d.type === "drive" || d.type === "existential") ? "11px" : "9px")
+        .attr("font-weight", d => (d.type === "drive" || d.type === "existential") ? "700" : "400")
+        .attr("fill", d => {
+          if (d.type === "drive")        return "#a78bfa";
+          if (d.type === "existential")  return "#f9a8d4";
+          return "#6b7280";
+        })
+        .attr("text-anchor", "middle")
+        .attr("dy", d => -(d.radius || 6) - 5)
+        .attr("pointer-events", "none"),
+      update => update
+        .attr("font-size", d => (d.type === "drive" || d.type === "existential") ? "11px" : "9px"),
+      exit => exit.remove()
+    );
+
+  // ── Tick ──────────────────────────────────────────────────────────────
+  simulation
+    .nodes(newNodes)
+    .on("tick", () => {
+      link
+        .attr("x1", d => d.source.x).attr("y1", d => d.source.y)
+        .attr("x2", d => d.target.x).attr("y2", d => d.target.y);
+      node
+        .attr("cx", d => d.x).attr("cy", d => d.y);
+      label
+        .attr("x", d => d.x).attr("y", d => d.y);
+    });
+
+  simulation.force("link").links(currentEdges);
+  simulation.alpha(0.25).restart();
+}
+
+// ── Drag ───────────────────────────────────────────────────────────────────
+function dragstarted(event, d) {
+  if (!event.active) simulation.alphaTarget(0.3).restart();
+  d.fx = d.x; d.fy = d.y;
+}
+function dragged(event, d) { d.fx = event.x; d.fy = event.y; }
+function dragended(event, d) {
+  if (!event.active) simulation.alphaTarget(0);
+  d.fx = null; d.fy = null;
+}
+
+// ── Tooltip ────────────────────────────────────────────────────────────────
+const tooltip = document.getElementById("tooltip");
+function showTooltip(event, d) {
+  const color = d.color || NODE_COLORS[d.type] || "#888";
+  document.getElementById("tt-type").textContent    = (d.type || "").replace(/_/g, " ").toUpperCase();
+  document.getElementById("tt-type").style.color    = color;
+  document.getElementById("tt-label").textContent   = d.label || "";
+  document.getElementById("tt-label").style.color   = color;
+  document.getElementById("tt-content").textContent = d.content || "";
+  tooltip.style.borderColor = color + "44";
+  tooltip.style.display = "block";
+  moveTooltip(event);
+}
+function moveTooltip(event) {
+  const x = event.clientX + 18, y = event.clientY - 12;
+  tooltip.style.left = Math.min(x, window.innerWidth  - 360) + "px";
+  tooltip.style.top  = Math.min(y, window.innerHeight - 150) + "px";
+}
+function hideTooltip() { tooltip.style.display = "none"; }
+
+// ── Data fetching ──────────────────────────────────────────────────────────
+async function fetchMind() {
+  try {
+    const res  = await fetch("/api/mind");
+    const data = await res.json();
+    if (data.nodes && data.nodes.length > 0) {
+      render(data);
+    } else {
+      document.getElementById("stat-nodes").textContent = "waiting…";
+    }
+  } catch (e) {
+    console.error("Mind fetch error:", e);
+  }
+}
+
+fetchMind();
+setInterval(fetchMind, 5000);
+
+window.addEventListener("resize", () => {
+  const w = window.innerWidth, h = window.innerHeight;
+  svg.attr("width", w).attr("height", h);
+});
+
+// Initial center
+svg.call(zoom.transform, d3.zoomIdentity.translate(width / 2, height / 2).scale(1));
+</script>
+</body>
+</html>

@@ -1,0 +1,29 @@
+# Secrets — never commit
+.env
+
+# Runtime data (agent writes these at runtime)
+data/
+logs/
+
+# Dynamic tools created by the agent at runtime
+src/tools/dynamic/
+
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# OS noise
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+*.swp

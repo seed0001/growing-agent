@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>seed sprout</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0a0a0f;
+      --surface:   #111118;
+      --border:    #1e1e2e;
+      --accent:    #6c63ff;
+      --accent2:   #a78bfa;
+      --kill:      #ef4444;
+      --warn:      #f59e0b;
+      --ok:        #22c55e;
+      --text:      #e2e8f0;
+      --muted:     #64748b;
+      --panel-hdr: #1a1a2e;
+    }
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    /* ── Layout ── */
+    .shell {
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      height: 100vh;
+      padding: 16px;
+      gap: 12px;
+    }
+
+    /* ── Header ── */
+    header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .logo {
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: .04em;
+      color: var(--accent2);
+    }
+    .logo span { color: var(--muted); font-weight: 400; font-size: 13px; margin-left: 6px; }
+    .status-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--muted);
+      transition: background .3s;
+    }
+    .status-dot.running { background: var(--ok); box-shadow: 0 0 6px var(--ok); animation: pulse 1.4s infinite; }
+    .status-dot.killed  { background: var(--kill); }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+    /* ── Panel grid ── */
+    .panels {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 10px;
+      overflow-y: auto;
+    }
+
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      display: flex;
+      flex-direction: column;
+      min-height: 140px;
+      max-height: 280px;
+      overflow: hidden;
+      transition: border-color .2s;
+    }
+    .panel:hover { border-color: #2d2d4e; }
+    .panel.flash { border-color: var(--accent); }
+
+    .panel-header {
+      background: var(--panel-hdr);
+      padding: 8px 12px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: var(--accent2);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .panel-header .dot {
+      width: 6px; height: 6px; border-radius: 50%; background: var(--muted);
+    }
+    .panel-header .dot.active { background: var(--ok); }
+
+    .panel-body {
+      flex: 1;
+      padding: 10px 12px;
+      overflow-y: auto;
+      font-size: 13px;
+      color: var(--text);
+      white-space: pre-wrap;
+      word-break: break-word;
+      scrollbar-width: thin;
+      scrollbar-color: var(--border) transparent;
+    }
+    .panel-body:empty::before { content: "—"; color: var(--muted); }
+
+    /* Messages panel */
+    .messages-list { display: flex; flex-direction: column; gap: 8px; }
+    .msg-bubble {
+      background: #1a1a2e;
+      border-left: 3px solid var(--accent);
+      padding: 6px 10px;
+      border-radius: 0 6px 6px 0;
+      font-size: 13px;
+    }
+    .msg-time { font-size: 10px; color: var(--muted); margin-top: 3px; }
+
+    /* ── Feedback banner ── */
+    /* ── Nudge bar ──────────────────────────────────────── */
+    .nudge-bar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: #0d1117;
+      border: 1px solid #30363d;
+      border-radius: 10px;
+      padding: 10px 14px;
+      margin-bottom: 4px;
+    }
+    .nudge-label {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      color: #6c63ff;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    #nudge-input {
+      flex: 1;
+      background: #111118;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      color: var(--text);
+      padding: 7px 12px;
+      font-size: 13px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    #nudge-input:focus { border-color: #6c63ff; }
+    .btn-nudge-send {
+      background: #6c63ff;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      padding: 7px 18px;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: background 0.2s;
+    }
+    .btn-nudge-send:hover { background: #5a52e0; }
+    .nudge-confirm {
+      font-size: 11px;
+      color: #3fb950;
+      min-width: 80px;
+      transition: opacity 0.4s;
+    }
+    /* ─────────────────────────────────────────────────── */
+
+    #feedback-bar {
+      display: none;
+      background: #1c1620;
+      border: 1px solid var(--warn);
+      border-radius: 10px;
+      padding: 12px 16px;
+      gap: 10px;
+      flex-direction: column;
+    }
+    #feedback-bar.visible { display: flex; }
+    #feedback-question {
+      color: var(--warn);
+      font-size: 13px;
+      font-weight: 500;
+    }
+    .feedback-input-row { display: flex; gap: 8px; }
+    #feedback-input {
+      flex: 1;
+      background: #111118;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      padding: 7px 10px;
+      font-size: 13px;
+      outline: none;
+    }
+    #feedback-input:focus { border-color: var(--warn); }
+    #feedback-submit {
+      background: var(--warn);
+      color: #000;
+      border: none;
+      border-radius: 6px;
+      padding: 7px 16px;
+      font-weight: 600;
+      cursor: pointer;
+      font-size: 13px;
+    }
+    #feedback-submit:hover { opacity: .85; }
+
+    /* ── Controls ── */
+    .controls {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 4px 0;
+    }
+
+    .btn {
+      border: none;
+      border-radius: 8px;
+      font-weight: 700;
+      font-size: 14px;
+      letter-spacing: .04em;
+      cursor: pointer;
+      padding: 10px 28px;
+      transition: opacity .15s, transform .1s;
+    }
+    .btn:active { transform: scale(.97); }
+    .btn:disabled { opacity: .4; cursor: not-allowed; }
+
+    .btn-evolve {
+      background: var(--accent);
+      color: #fff;
+      box-shadow: 0 0 16px #6c63ff44;
+    }
+    .btn-evolve:hover:not(:disabled) { opacity: .88; }
+
+    .btn-kill {
+      background: transparent;
+      border: 1.5px solid var(--kill);
+      color: var(--kill);
+    }
+    .btn-kill:hover:not(:disabled) { background: #ef444420; }
+
+    .btn-reset {
+      background: transparent;
+      border: 1.5px solid var(--muted);
+      color: var(--muted);
+      font-size: 12px;
+      padding: 8px 16px;
+    }
+    .btn-reset:hover { border-color: var(--kill); color: var(--kill); }
+
+    .btn-log {
+      background: transparent;
+      border: 1.5px solid var(--border);
+      color: var(--muted);
+      font-size: 12px;
+      padding: 8px 16px;
+    }
+    .btn-log:hover { border-color: var(--accent2); color: var(--accent2); }
+
+    /* Log panel */
+    .log-entry {
+      padding: 3px 0;
+      border-bottom: 1px solid #1a1a2a;
+      font-size: 11px;
+      font-family: 'Cascadia Code', 'Consolas', monospace;
+    }
+    .log-entry .ts { color: var(--muted); margin-right: 6px; }
+    .log-entry.cycle_start  { color: var(--accent2); }
+    .log-entry.cycle_end    { color: var(--ok); }
+    .log-entry.model_output { color: var(--text); }
+    .log-entry.tool_call    { color: #60a5fa; }
+    .log-entry.tool_result  { color: #94a3b8; }
+    .log-entry.killed       { color: var(--kill); }
+    .log-entry.error        { color: var(--kill); }
+    .log-entry.reset        { color: var(--warn); }
+
+    .cycle-label {
+      font-size: 12px;
+      color: var(--muted);
+      margin-left: 4px;
+    }
+    .cycle-label.running { color: var(--ok); }
+
+    /* ── Scrollbars ── */
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+  </style>
+</head>
+<body>
+<div class="shell">
+
+  <!-- Header -->
+  <header>
+    <div class="logo">seed sprout <span>/ observation deck</span></div>
+    <div class="status-dot" id="status-dot"></div>
+  </header>
+
+  <!-- Feedback bar (hidden until agent requests) -->
+  <div id="feedback-bar">
+    <div id="feedback-question"></div>
+    <div class="feedback-input-row">
+      <input id="feedback-input" type="text" placeholder="Your response..." />
+      <button class="btn" id="feedback-submit" onclick="submitFeedback()">Send</button>
+    </div>
+  </div>
+
+  <!-- Panel grid -->
+  <div class="panels" id="panels">
+    <div class="panel" id="panel-thinking">
+      <div class="panel-header"><div class="dot" id="dot-thinking"></div>Thinking</div>
+      <div class="panel-body" id="body-thinking"></div>
+    </div>
+    <div class="panel" id="panel-planning">
+      <div class="panel-header"><div class="dot" id="dot-planning"></div>Planning</div>
+      <div class="panel-body" id="body-planning"></div>
+    </div>
+    <div class="panel" id="panel-working_on">
+      <div class="panel-header"><div class="dot" id="dot-working_on"></div>Working On</div>
+      <div class="panel-body" id="body-working_on"></div>
+    </div>
+    <div class="panel" id="panel-knowledge">
+      <div class="panel-header"><div class="dot" id="dot-knowledge"></div>Knowledge Written</div>
+      <div class="panel-body" id="body-knowledge"></div>
+    </div>
+    <div class="panel" id="panel-tools">
+      <div class="panel-header"><div class="dot" id="dot-tools"></div>Tools Absorbed</div>
+      <div class="panel-body" id="body-tools"></div>
+    </div>
+    <div class="panel" id="panel-messages">
+      <div class="panel-header"><div class="dot" id="dot-messages"></div>Messages from Agent</div>
+      <div class="panel-body" id="body-messages"><div class="messages-list" id="messages-list"></div></div>
+    </div>
+    <div class="panel" id="panel-log" style="min-height:180px; max-height:320px;">
+      <div class="panel-header"><div class="dot active" id="dot-log"></div>Evolution Log</div>
+      <div class="panel-body" id="body-log" style="font-size:11px; font-family:monospace;"></div>
+    </div>
+  </div>
+
+  <!-- Nudge bar -->
+  <div class="nudge-bar" id="nudge-bar">
+    <span class="nudge-label">NUDGE</span>
+    <input type="text" id="nudge-input" placeholder="Send a message to the agent — it will read it at the start of the next cycle…" maxlength="500" />
+    <button class="btn-nudge-send" onclick="sendNudge()">SEND</button>
+    <span class="nudge-confirm" id="nudge-confirm"></span>
+  </div>
+
+  <!-- Controls -->
+  <div class="controls">
+    <button class="btn btn-evolve" id="btn-evolve" onclick="triggerEvolve()">EVOLVE</button>
+    <button class="btn btn-kill" id="btn-kill" onclick="triggerKill()">KILL</button>
+    <button class="btn btn-reset" id="btn-reset" onclick="triggerReset()">RESET</button>
+    <button class="btn btn-log" onclick="window.open('/api/log?n=1000','_blank')">VIEW LOG</button>
+    <button class="btn btn-log" onclick="window.open('/graph','_blank')" style="border-color:#6c63ff; color:#a78bfa;">GRAPH</button>
+    <button class="btn btn-log" onclick="window.open('/mind','_blank')" style="border-color:#22c55e; color:#4ade80;">MIND</button>
+    <span class="cycle-label" id="cycle-label">idle</span>
+  </div>
+
+</div>
+
+<script>
+  const panels = {};
+  let cycleRunning = false;
+
+  // ── SSE ──────────────────────────────────────────────────────────────────
+  const evtSource = new EventSource('/api/events');
+  evtSource.onmessage = (e) => {
+    const data = JSON.parse(e.data);
+    handleEvent(data);
+  };
+  evtSource.onerror = () => {
+    setTimeout(() => location.reload(), 3000);
+  };
+
+  function handleEvent(d) {
+    switch (d.type) {
+      case 'snapshot':
+        if (d.panels) {
+          Object.entries(d.panels).forEach(([name, content]) => setPanel(name, content));
+        }
+        if (d.messages) {
+          d.messages.forEach(m => addMessage(m.content, m.sent_at));
+        }
+        setRunning(d.cycle_running);
+        if (d.feedback_pending) showFeedback(d.feedback_question);
+        break;
+
+      case 'panel':
+        setPanel(d.panel, d.content);
+        flashPanel(d.panel);
+        break;
+
+      case 'new_panel':
+        createPanel(d.panel, d.content);
+        break;
+
+      case 'message':
+        addMessage(d.content, d.sent_at);
+        flashPanel('messages');
+        break;
+
+      case 'cycle_state':
+        setRunning(d.running);
+        break;
+
+      case 'feedback_requested':
+        showFeedback(d.question);
+        break;
+
+      case 'feedback_resolved':
+        hideFeedback();
+        break;
+
+      case 'killed':
+        setRunning(false);
+        document.getElementById('status-dot').className = 'status-dot killed';
+        document.getElementById('cycle-label').textContent = 'killed';
+        document.getElementById('cycle-label').className = 'cycle-label';
+        break;
+    }
+  }
+
+  // ── Panel management ──────────────────────────────────────────────────────
+  function setPanel(name, content) {
+    const el = document.getElementById(`body-${name}`);
+    if (el && name !== 'messages') {
+      el.textContent = content || '';
+      el.scrollTop = el.scrollHeight;
+    }
+    // Update active dot
+    const dot = document.getElementById(`dot-${name}`);
+    if (dot && content) dot.className = 'dot active';
+  }
+
+  function flashPanel(name) {
+    const panel = document.getElementById(`panel-${name}`);
+    if (!panel) return;
+    panel.classList.add('flash');
+    setTimeout(() => panel.classList.remove('flash'), 800);
+  }
+
+  function createPanel(name, content) {
+    if (document.getElementById(`panel-${name}`)) return;
+    const panelsEl = document.getElementById('panels');
+    const div = document.createElement('div');
+    div.className = 'panel';
+    div.id = `panel-${name}`;
+    div.innerHTML = `
+      <div class="panel-header">
+        <div class="dot active" id="dot-${name}"></div>${name}
+      </div>
+      <div class="panel-body" id="body-${name}">${escapeHtml(content || '')}</div>
+    `;
+    panelsEl.appendChild(div);
+  }
+
+  function addMessage(content, sentAt) {
+    const list = document.getElementById('messages-list');
+    if (!list) return;
+    // Avoid duplicates
+    const existing = Array.from(list.querySelectorAll('.msg-bubble')).find(
+      el => el.dataset.content === content
+    );
+    if (existing) return;
+    const div = document.createElement('div');
+    div.className = 'msg-bubble';
+    div.dataset.content = content;
+    div.innerHTML = `<div>${escapeHtml(content)}</div><div class="msg-time">${sentAt || ''}</div>`;
+    list.appendChild(div);
+    const body = document.getElementById('body-messages');
+    if (body) body.scrollTop = body.scrollHeight;
+  }
+
+  // ── Running state ─────────────────────────────────────────────────────────
+  function setRunning(running) {
+    cycleRunning = running;
+    document.getElementById('btn-evolve').disabled = running;
+    document.getElementById('btn-kill').disabled = !running;
+    const dot = document.getElementById('status-dot');
+    dot.className = 'status-dot' + (running ? ' running' : '');
+    const label = document.getElementById('cycle-label');
+    label.textContent = running ? 'evolving...' : 'idle';
+    label.className = 'cycle-label' + (running ? ' running' : '');
+  }
+
+  // ── Actions ───────────────────────────────────────────────────────────────
+  async function triggerEvolve() {
+    if (cycleRunning) return;
+    const res = await fetch('/api/evolve', { method: 'POST' });
+    const data = await res.json();
+    if (data.status === 'started') setRunning(true);
+  }
+
+  async function triggerKill() {
+    await fetch('/api/kill', { method: 'POST' });
+  }
+
+  // ── Nudge ──────────────────────────────────────────────────────────────────
+  async function sendNudge() {
+    const input = document.getElementById('nudge-input');
+    const msg = input.value.trim();
+    if (!msg) return;
+    const form = new FormData();
+    form.append('message', msg);
+    const res = await fetch('/api/nudge', { method: 'POST', body: form });
+    if (res.ok) {
+      input.value = '';
+      const confirm = document.getElementById('nudge-confirm');
+      confirm.textContent = 'Queued ✓';
+      confirm.style.opacity = '1';
+      setTimeout(() => { confirm.style.opacity = '0'; }, 2500);
+    }
+  }
+
+  document.getElementById('nudge-input').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') sendNudge();
+  });
+
+  // ── Feedback ──────────────────────────────────────────────────────────────
+  function showFeedback(question) {
+    document.getElementById('feedback-question').textContent = question;
+    document.getElementById('feedback-bar').classList.add('visible');
+    document.getElementById('feedback-input').focus();
+  }
+
+  function hideFeedback() {
+    document.getElementById('feedback-bar').classList.remove('visible');
+    document.getElementById('feedback-input').value = '';
+  }
+
+  async function submitFeedback() {
+    const answer = document.getElementById('feedback-input').value.trim();
+    if (!answer) return;
+    const form = new FormData();
+    form.append('answer', answer);
+    await fetch('/api/feedback', { method: 'POST', body: form });
+    hideFeedback();
+  }
+
+  document.getElementById('feedback-input').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') submitFeedback();
+  });
+
+  // ── Util ──────────────────────────────────────────────────────────────────
+  function escapeHtml(str) {
+    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  // Init kill button as disabled
+  document.getElementById('btn-kill').disabled = true;
+
+  // ── Reset ─────────────────────────────────────────────────────────────────
+  async function triggerReset() {
+    if (!confirm('Reset all state? This wipes knowledge, tools, memory, and drives back to zero. The log file is kept. This cannot be undone.')) return;
+    await fetch('/api/kill', { method: 'POST' });
+    await fetch('/api/reset', { method: 'POST' });
+    // Clear log panel
+    document.getElementById('body-log').innerHTML = '';
+    setRunning(false);
+    document.getElementById('status-dot').className = 'status-dot';
+    document.getElementById('cycle-label').textContent = 'reset — ready';
+  }
+
+  // ── Log panel ─────────────────────────────────────────────────────────────
+  const _logSeen = new Set();
+
+  function renderLogEntry(e) {
+    const key = (e.ts || '') + (e.type || '') + (e.content || e.tool || e.result || '').slice(0, 40);
+    if (_logSeen.has(key)) return;
+    _logSeen.add(key);
+
+    const el = document.createElement('div');
+    el.className = `log-entry ${e.type || ''}`;
+    const ts = (e.ts || '').replace('T', ' ').replace('Z', '').slice(0, 23);
+    let body = '';
+    switch (e.type) {
+      case 'cycle_start':  body = `▶ cycle ${e.cycle} started`; break;
+      case 'cycle_end':    body = `■ cycle ${e.cycle} complete — ${(e.summary || '').slice(0,120)}`; break;
+      case 'model_output': body = `💬 ${(e.content || '').slice(0, 200)}`; break;
+      case 'tool_call':    body = `⚙ ${e.tool}(${JSON.stringify(e.args || {}).slice(0,120)})`; break;
+      case 'tool_result':  body = `↩ ${e.tool}: ${(e.result || '').slice(0,120)}`; break;
+      case 'killed':       body = `✕ killed at cycle ${e.cycle}`; break;
+      case 'error':        body = `⚠ error: ${e.error}`; break;
+      case 'reset':        body = `↺ reset — state wiped`; break;
+      default:             body = JSON.stringify(e).slice(0, 160);
+    }
+    el.innerHTML = `<span class="ts">${ts}</span>${escapeHtml(body)}`;
+    const logBody = document.getElementById('body-log');
+    logBody.appendChild(el);
+    logBody.scrollTop = logBody.scrollHeight;
+  }
+
+  async function pollLog() {
+    try {
+      const res = await fetch('/api/log?n=200');
+      const data = await res.json();
+      (data.entries || []).forEach(renderLogEntry);
+    } catch (_) {}
+  }
+
+  // Poll log every 2s
+  pollLog();
+  setInterval(pollLog, 2000);
+</script>
+</body>
+</html>
