@@ -5,17 +5,28 @@ from pathlib import Path
 
 import uvicorn
 from fastapi import FastAPI, Form, Request
-from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from config.settings import (
-    DATA_DIR, KNOWLEDGE_DIR, TOOLS_DRAFTS_DIR, TOOLS_TESTS_DIR,
+    DATA_DIR, AUDIO_DIR, KNOWLEDGE_DIR, TOOLS_DRAFTS_DIR, TOOLS_TESTS_DIR,
     TOOLS_REJECTED_DIR, DYNAMIC_TOOLS_DIR, MEMORY_DIR, WEB_HOST, WEB_PORT,
 )
 from src.web.ui_state import ui
+from src.voice import start_voice_worker, stop_voice_worker
 
 app = FastAPI(title="seed sprout")
+
+
+@app.on_event("startup")
+async def startup():
+    start_voice_worker()
+
+
+@app.on_event("shutdown")
+async def shutdown():
+    stop_voice_worker()
 
 _TEMPLATES_DIR = Path(__file__).parent / "templates"
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
@@ -198,6 +209,17 @@ async def api_mind():
     """Return force-graph data built from live data files (mind map)."""
     from src.web.mind_builder import build_mind
     return JSONResponse(build_mind())
+
+
+@app.get("/api/audio/latest")
+async def api_audio_latest(voice: str = "narrator"):
+    """Serve the latest TTS file for narrator or agent. Used by observation deck for playback."""
+    if voice not in ("narrator", "agent"):
+        voice = "narrator"
+    path = AUDIO_DIR / f"latest_{voice}.mp3"
+    if not path.exists():
+        return JSONResponse({"error": "no audio yet"}, status_code=404)
+    return FileResponse(path, media_type="audio/mpeg")
 
 
 @app.get("/api/snapshot")

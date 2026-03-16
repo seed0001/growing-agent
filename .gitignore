@@ -27,3 +27,8 @@ Thumbs.db
 # Editor
 .vscode/
 *.swp
+
+# User/IDE data (never commit)
+conversation_history.json
+user_preferences.json
+*.cursor*

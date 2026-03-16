@@ -27,6 +27,8 @@ from src.tools import system, search, knowledge as kb
 from src.tools import tool_editor, tool_tester, tool_absorber, dynamic_loader
 from src.web.ui_state import ui
 from src.agent import logger
+from src import narrator
+from src import voice
 
 # ── Tool definitions ──────────────────────────────────────────────────────────
 
@@ -216,6 +218,13 @@ BASE_TOOLS = [
             "question": {"type": "string"},
         }, "required": ["question"]},
     }},
+    {"type": "function", "function": {
+        "name": "speak_as_self",
+        "description": "Speak out loud in your own voice (the organism's voice). Use when you want to be heard — the observation deck will play this. A documentary narrator describes events separately; this is you speaking. Keep it short (one or two sentences).",
+        "parameters": {"type": "object", "properties": {
+            "content": {"type": "string", "description": "What to say, in first person. Short and clear."},
+        }, "required": ["content"]},
+    }},
 ]
 
 
@@ -315,6 +324,7 @@ class SeedSprout:
             _panel_content = f"**{args['topic']}**\n{args['content'][:300]}"
             ui.update("knowledge", _panel_content)
             logger.log_panel_update(getattr(self, "_current_cycle", 0), "knowledge", _panel_content)
+            narrator.on_knowledge_written(args["topic"])
             return result
         elif name == "read_knowledge":
             self.biology.satisfy("curiosity")
@@ -358,6 +368,7 @@ class SeedSprout:
                 absorbed_list = tool_absorber.list_absorbed_tools()
                 ui.update("tools", absorbed_list)
                 logger.log_panel_update(getattr(self, "_current_cycle", 0), "tools", f"Absorbed: {args['name']}\n{absorbed_list}")
+                narrator.on_tool_absorbed(args["name"])
             return result
         elif name == "reject_tool":
             return tool_absorber.reject_tool(args["name"], args.get("reason", ""))
@@ -381,6 +392,11 @@ class SeedSprout:
             self.biology.satisfy("connection")
             self.memory.add(f"Feedback requested: {args['question']}\nResponse: {answer}")
             return f"Feedback received: {answer}"
+        elif name == "speak_as_self":
+            voice.queue_speak(args["content"], "agent")
+            logger.log_panel_update(getattr(self, "_current_cycle", 0), "messages", f"[spoken] {args['content'][:100]}")
+            self.biology.satisfy("expression")
+            return "Queued for playback in your voice."
         # ── dynamic tools ─────────────────────────────────────────────────
         else:
             _, runners = dynamic_loader.load_dynamic_tools()
@@ -461,6 +477,7 @@ class SeedSprout:
         ui.update("working_on", "")
         _cycle = logger.log_cycle_start()
         self._current_cycle = _cycle
+        narrator.on_cycle_start(_cycle)
 
         MAX_TOOL_ROUNDS = 20
         tool_round = 0
@@ -468,6 +485,7 @@ class SeedSprout:
         while tool_round < MAX_TOOL_ROUNDS:
             if self._cancelled or ui.check_kill():
                 logger.log_kill(_cycle)
+                narrator.on_cycle_killed(_cycle)
                 ui.update("thinking", "Cycle cancelled.")
                 self.memory.add("Evolution cycle killed by user.")
                 break
@@ -500,6 +518,7 @@ class SeedSprout:
                 self.messages.append({"role": "assistant", "content": content})
                 self.memory.add(f"Evolution cycle complete: {content[:200]}")
                 logger.log_cycle_end(_cycle, content)
+                narrator.on_cycle_end(_cycle, content)
                 ui.update("planning", "Cycle complete.")
                 ui.update("working_on", "")
                 break

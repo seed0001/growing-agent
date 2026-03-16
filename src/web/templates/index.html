@@ -308,6 +308,7 @@
   <header>
     <div class="logo">seed sprout <span>/ observation deck</span></div>
     <div class="status-dot" id="status-dot"></div>
+    <span id="tts-label" class="tts-label" style="visibility:hidden; font-size:10px; text-transform:uppercase; letter-spacing:.1em; color:var(--muted); margin-left:8px;"></span>
   </header>
 
   <!-- Feedback bar (hidden until agent requests) -->
@@ -431,7 +432,28 @@
         document.getElementById('cycle-label').textContent = 'killed';
         document.getElementById('cycle-label').className = 'cycle-label';
         break;
+
+      case 'tts_ready':
+        playTts(d.url, d.voice, d.text);
+        break;
     }
+  }
+
+  // ── TTS (documentary narrator + organism voice) ─────────────────────────────
+  const ttsAudio = new Audio();
+  const ttsLabelEl = document.getElementById('tts-label');
+  function playTts(url, voice, text) {
+    if (!url) return;
+    const label = voice === 'agent' ? 'Organism' : 'Narrator';
+    if (ttsLabelEl) {
+      ttsLabelEl.textContent = label;
+      ttsLabelEl.style.visibility = 'visible';
+    }
+    ttsAudio.src = url + (url.indexOf('?') >= 0 ? '&' : '?') + 't=' + Date.now();
+    ttsAudio.play().catch(() => {});
+    ttsAudio.onended = () => {
+      if (ttsLabelEl) ttsLabelEl.style.visibility = 'hidden';
+    };
   }
 
   // ── Panel management ──────────────────────────────────────────────────────

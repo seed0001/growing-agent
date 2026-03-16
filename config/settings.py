@@ -15,12 +15,13 @@ TOOLS_REJECTED_DIR = DATA_DIR / "tools" / "rejected"
 DYNAMIC_TOOLS_DIR  = PROJECT_ROOT / "src" / "tools" / "dynamic"
 MEMORY_DIR         = DATA_DIR / "memory"
 LOGS_DIR           = PROJECT_ROOT / "logs"
+AUDIO_DIR          = DATA_DIR / "audio"
 FEEDBACK_FILE      = DATA_DIR / "feedback_queue.json"
 INBOX_FILE         = DATA_DIR / "inbox.json"
 
 for _d in (
     DATA_DIR, KNOWLEDGE_DIR, TOOLS_DRAFTS_DIR, TOOLS_TESTS_DIR,
-    TOOLS_REJECTED_DIR, DYNAMIC_TOOLS_DIR, MEMORY_DIR, LOGS_DIR,
+    TOOLS_REJECTED_DIR, DYNAMIC_TOOLS_DIR, MEMORY_DIR, LOGS_DIR, AUDIO_DIR,
 ):
     _d.mkdir(parents=True, exist_ok=True)
 
